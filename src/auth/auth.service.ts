@@ -77,12 +77,4 @@ export class AuthService {
       refreshToken: AuthenticationResult.RefreshToken,
     };
   }
-
-  redirectToGoogle() {
-    return this.cognitoService.redirectToGoogle();
-  }
-
-  googleLoginCallback(req: any) {
-    return this.cognitoService.googleLoginCallback(req);
-  }
 }

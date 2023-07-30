@@ -1,12 +1,12 @@
 // src/auth/cognito/cognito.service.ts
 import {
+  AdminGetUserCommand,
   AuthFlowType,
   ChallengeNameType,
   CognitoIdentityProvider,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
   GetUserAttributeVerificationCodeCommand,
-  InitiateAuthCommand,
   ResendConfirmationCodeCommand,
   RespondToAuthChallengeCommandInput,
   SignUpCommand,
@@ -17,7 +17,6 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { createHmac } from 'crypto';
 import { ConfirmSignUpDto } from '../dto/otp.dto';
 import { SignUpDto } from './../dto/signup.dto';
@@ -29,37 +28,22 @@ export class CognitoService {
   private region: string;
   private clientId: string;
   private clientSecret: string;
-  private googleId: string;
-  private googleSecret: string;
   private userPoolId: string;
   private cognitoDomainName: string;
-  private readonly googleRedirUrl: string;
   constructor(private configService: ConfigService) {
-    this.region = this.configService.get('AWS_COGNITO_REGION');
-    this.clientId = this.configService.get('AWS_COGNITO_CLIENT_ID');
-    this.clientSecret = this.configService.get('AWS_COGNITO_CLIENT_SECRET');
-    this.googleId = this.configService.get('GOOGLE_CLIENT_ID');
-    this.googleSecret = this.configService.get('GOOGLE_CLIENT_SECRET');
-    this.cognitoDomainName = this.configService.get('AWS_COGNITO_DOMAIN');
-    this.googleRedirUrl = `https://famatch.io`;
-
-    this.userPoolId = this.configService.get<string>(
-      'AWS_COGNITO_USER_POOL_ID',
-    );
+    this.region = this.configService.get('AWS_COGNITO_REGION') ?? '';
+    this.clientId = this.configService.get('AWS_COGNITO_CLIENT_ID') ?? '';
+    this.clientSecret =
+      this.configService.get('AWS_COGNITO_CLIENT_SECRET') ?? '';
+    this.cognitoDomainName = this.configService.get('AWS_COGNITO_DOMAIN') ?? '';
+    this.userPoolId =
+      this.configService.get<string>('AWS_COGNITO_USER_POOL_ID') ?? '';
 
     this.cognito = new CognitoIdentityProvider({
       region: this.region,
       credentials: {
-        accessKeyId: this.configService.get('AWS_COGNITO_IAM_KEY'),
-        secretAccessKey: this.configService.get('AWS_COGNITO_IAM_SECRET'),
-      },
-    });
-
-    this.cognitoClient = new CognitoIdentityProviderClient({
-      region: this.region,
-      credentials: {
-        accessKeyId: this.configService.get('AWS_COGNITO_IAM_KEY'),
-        secretAccessKey: this.configService.get('AWS_COGNITO_IAM_SECRET'),
+        accessKeyId: this.configService.get('AWS_COGNITO_IAM_KEY') ?? '',
+        secretAccessKey: this.configService.get('AWS_COGNITO_IAM_SECRET') ?? '',
       },
     });
   }
@@ -178,118 +162,22 @@ export class CognitoService {
     return `https://cognito-idp.${this.region}.amazonaws.com/${this.userPoolId}/.well-known/jwks.json`;
   }
 
-  getGoogleAuthUrl() {
-    const redirectUri = 'https://famatch.io';
-    const scopes = ['openid', 'profile', 'email'];
-
-    const params = {
-      ClientId: this.clientId,
-      RedirectUri: redirectUri,
-      AuthFlow: 'USER_SRP_AUTH',
-      AuthParameters: {
-        auth_type: 'rerequest',
-        scope: scopes.join(' '),
-        identity_provider: 'Google',
-        state: 'STATE_STRING',
-      },
-    };
-
-    const url = 'this.cognito.url(params).authorizeURL()';
-    return url;
-  }
-
-  async exchangeCodeForIdToken(code) {
-    const tokenEndpoint = 'https://oauth2.googleapis.com/token';
-
-    const params = new URLSearchParams({
-      code,
-      client_id: this.googleId,
-      client_secret: this.googleSecret,
-      redirect_uri: `https://${this.cognitoDomainName}.auth.${this.region}.amazoncognito.com/oauth2/idpresponse`,
-      grant_type: 'authorization_code',
-    });
-
-    const response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to exchange code for ID token. Status code ${response.status}`,
-      );
-    }
-
-    const { id_token } = await response.json();
-
-    return id_token;
-  }
-
-  async authenticateWithCognito(idToken: string) {
-    const authResult = await this.cognitoClient.send(
-      new InitiateAuthCommand({
-        AuthFlow: 'CUSTOM_AUTH',
-        AuthParameters: {
-          'cognito:username': '',
-          'cognito:custom:google:id_token': idToken,
-          'cognito:userpool:id': this.userPoolId,
-        },
-        ClientId: this.clientId,
-      }),
-    );
-
-    const { AccessToken, IdToken, RefreshToken } =
-      authResult.AuthenticationResult!;
-    return {
-      accessToken: AccessToken!,
-      idToken: IdToken!,
-      refreshToken: RefreshToken!,
-    };
-  }
-
-  redirectToGoogle() {
-    const params = new URLSearchParams({
-      client_id: this.googleId,
-      redirect_uri: this.googleRedirUrl,
-      response_type: 'code',
-      scope: 'openid email profile',
-    });
-
-    return {
-      url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
-    };
-  }
-
-  async googleLoginCallback(code: string) {
+  // * check if user exist in Cognito user pool
+  private async getCognitoSubId(username: string): Promise<string | null> {
     try {
-      // Exchange the authorization code for an ID token using the Google API.
-      const { data } = await axios.post('https://oauth2.googleapis.com/token', {
-        code,
-        client_id: this.googleId,
-        client_secret: this.googleSecret,
-        redirect_uri: this.googleRedirUrl,
-        grant_type: 'authorization_code',
-      });
+      const cognitoUser = await this.cognito.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: username,
+        }),
+      );
 
-      // Authenticate the user with AWS Cognito using the Google ID token.
-      const result = await this.cognito.adminInitiateAuth({
-        AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
-        ClientId: this.clientId,
-        UserPoolId: this.userPoolId,
-        AuthParameters: {
-          USERNAME: data.email, // Use the email as the username.
-          PASSWORD: 'google', // A password is required for ADMIN_USER_PASSWORD_AUTH.
-        },
-        ClientMetadata: {
-          id_token: data.id_token, // Store the ID token in the client metadata.
-        },
-      });
-
-      return { access_token: result.AuthenticationResult.AccessToken };
+      return (
+        cognitoUser?.UserAttributes?.find((attr) => attr.Name === 'sub')
+          ?.Value ?? null
+      );
     } catch (error) {
-      console.error(error);
-      throw new Error('Failed to authenticate user.');
+      return null;
     }
   }
 }

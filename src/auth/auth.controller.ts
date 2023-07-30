@@ -1,38 +1,38 @@
 // src/auth/auth.controller.ts
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Query,
-  Redirect,
-  UseGuards,
-} from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
+import { UserService } from 'src/user/user.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { NewPasswordDto } from './dto/new-password.dto';
 import { CodeDto, ConfirmSignUpDto } from './dto/otp.dto';
 import { SignUpDto } from './dto/signup.dto';
 import { GetAccessToken } from './get-jwt.decorator';
+import { GetCognitoUser } from './get-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { AWSCognitoPayload } from './models/AwsCognitoPayload';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private userService: UserService,
+  ) {}
 
-  @Get('google')
-  @Redirect('https://accounts.google.com/o/oauth2/v2/auth', 302)
-  async redirectToGoogle() {
-    return this.authService.redirectToGoogle();
-  }
-
-  @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
-  async googleLoginCallback(@Query('code') code: string) {
-    return this.authService.googleLoginCallback(code);
+  @UseGuards(JwtAuthGuard)
+  @Get('google/redirect')
+  async googleLoginRedirect(
+    @GetCognitoUser() user: AWSCognitoPayload,
+    @Res() res: Response,
+  ) {
+    const appUser = await this.userService.getUserByCognitoId(user.sub);
+    if (appUser) {
+      throw new Error('User already exists');
+    }
+    await this.userService.create(user.sub);
+    return res.redirect(`${process.env.LOGIN_REDIRECT_UI_URL}`);
   }
 
   @Post('login')
