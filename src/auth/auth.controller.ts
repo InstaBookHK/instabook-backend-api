@@ -1,38 +1,26 @@
 // src/auth/auth.controller.ts
-import { Body, Controller, Get, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Response } from 'express';
-import { UserService } from 'src/user/user.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { NewPasswordDto } from './dto/new-password.dto';
 import { CodeDto, ConfirmSignUpDto } from './dto/otp.dto';
 import { SignUpDto } from './dto/signup.dto';
 import { GetAccessToken } from './get-jwt.decorator';
-import { GetCognitoUser } from './get-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { AWSCognitoPayload } from './models/AwsCognitoPayload';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private authService: AuthService,
-    private userService: UserService,
-  ) {}
+  constructor(private authService: AuthService) {}
 
-  @UseGuards(JwtAuthGuard)
-  @Get('google/redirect')
-  async googleLoginRedirect(
-    @GetCognitoUser() user: AWSCognitoPayload,
-    @Res() res: Response,
-  ) {
-    const appUser = await this.userService.getUserByCognitoId(user.sub);
-    if (appUser) {
-      throw new Error('User already exists');
-    }
-    await this.userService.create(user.sub);
-    return res.redirect(`${process.env.LOGIN_REDIRECT_UI_URL}`);
+  @Post('exchange-code')
+  async exchangeCode(@Body('code') code: string) {
+    const tokens = await this.authService.exchangeCodeForToken(code);
+    // Here you can pass tokens to AuthService for any additional processing
+    // For example:
+    // await this.authService.handleAuthentication(tokens);
+    return tokens;
   }
 
   @Post('login')
