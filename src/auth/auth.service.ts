@@ -3,12 +3,12 @@
 import { ChallengeNameType } from '@aws-sdk/client-cognito-identity-provider';
 import { Injectable } from '@nestjs/common';
 import { CognitoService } from './cognito/cognito.service';
+import { CognitoOAuth2TokenResponse } from './dto/TokenDto';
 import { ConfirmSignUpDto } from './dto/otp.dto';
 import { SignUpDto } from './dto/signup.dto';
 @Injectable()
 export class AuthService {
   constructor(private cognitoService: CognitoService) {}
-
   async login(usernameOrEmail: string, password: string) {
     const { ChallengeName, AuthenticationResult, Session } =
       await this.cognitoService.initiateAuth(usernameOrEmail, password);
@@ -77,5 +77,12 @@ export class AuthService {
       idToken: AuthenticationResult.IdToken,
       refreshToken: AuthenticationResult.RefreshToken,
     };
+  }
+
+  // * oauth flow
+  async exchangeCodeForToken(
+    code: string,
+  ): Promise<CognitoOAuth2TokenResponse> {
+    return this.cognitoService.exchangeCodeForToken(code);
   }
 }

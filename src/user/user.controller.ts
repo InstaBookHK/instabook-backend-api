@@ -5,14 +5,12 @@ import {
   Get,
   Param,
   Patch,
-  Post,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { GetCognitoUser } from 'src/auth/get-user.decorator';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AWSCognitoPayload } from 'src/auth/models/AwsCognitoPayload';
-import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserService } from './user.service';
 
@@ -25,11 +23,6 @@ export class UserController {
   @Get('me')
   getProfile(@GetCognitoUser() user: AWSCognitoPayload) {
     return this.userService.getUserByCognitoId(user.sub);
-  }
-
-  @Post()
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.userService.create(createUserDto);
   }
 
   @Get()

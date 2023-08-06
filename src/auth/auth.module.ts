@@ -11,7 +11,6 @@ import { CognitoModule } from './cognito/cognito.module';
 import { CognitoService } from './cognito/cognito.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
-
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),

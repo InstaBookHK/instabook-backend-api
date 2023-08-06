@@ -1,5 +1,6 @@
 // src/auth/cognito/cognito.service.ts
 import {
+  AdminGetUserCommand,
   AuthFlowType,
   ChallengeNameType,
   CognitoIdentityProvider,
@@ -15,7 +16,13 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 import { createHmac } from 'crypto';
+import * as qs from 'qs';
+import {
+  CognitoOAuth2TokenRequest,
+  CognitoOAuth2TokenResponse,
+} from '../dto/TokenDto';
 import { ConfirmSignUpDto } from '../dto/otp.dto';
 import { SignUpDto } from './../dto/signup.dto';
 
@@ -26,20 +33,23 @@ export class CognitoService {
   private clientId: string;
   private clientSecret: string;
   private userPoolId: string;
-
+  private cognitoDomainName: string;
+  private redirectUri: string;
   constructor(private configService: ConfigService) {
-    this.region = this.configService.get('AWS_COGNITO_REGION');
-    this.clientId = this.configService.get('AWS_COGNITO_CLIENT_ID');
-    this.clientSecret = this.configService.get('AWS_COGNITO_CLIENT_SECRET');
-    this.userPoolId = this.configService.get<string>(
-      'AWS_COGNITO_USER_POOL_ID',
-    );
-
+    this.region = this.configService.get('AWS_COGNITO_REGION') ?? '';
+    this.clientId = this.configService.get('AWS_COGNITO_CLIENT_ID') ?? '';
+    this.clientSecret =
+      this.configService.get('AWS_COGNITO_CLIENT_SECRET') ?? '';
+    this.cognitoDomainName = this.configService.get('AWS_COGNITO_DOMAIN') ?? '';
+    this.userPoolId =
+      this.configService.get<string>('AWS_COGNITO_USER_POOL_ID') ?? '';
+    this.redirectUri =
+      this.configService.get<string>('LOGIN_REDIRECT_UI_URL') ?? '';
     this.cognito = new CognitoIdentityProvider({
       region: this.region,
       credentials: {
-        accessKeyId: this.configService.get('AWS_COGNITO_IAM_KEY'),
-        secretAccessKey: this.configService.get('AWS_COGNITO_IAM_SECRET'),
+        accessKeyId: this.configService.get('AWS_COGNITO_IAM_KEY') ?? '',
+        secretAccessKey: this.configService.get('AWS_COGNITO_IAM_SECRET') ?? '',
       },
     });
   }
@@ -156,5 +166,60 @@ export class CognitoService {
 
   getJwksUri() {
     return `https://cognito-idp.${this.region}.amazonaws.com/${this.userPoolId}/.well-known/jwks.json`;
+  }
+
+  // * check if user exist in Cognito user pool
+  async getCognitoSubId(username: string): Promise<string | null> {
+    try {
+      const cognitoUser = await this.cognito.send(
+        new AdminGetUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: username,
+        }),
+      );
+
+      return (
+        cognitoUser?.UserAttributes?.find((attr) => attr.Name === 'sub')
+          ?.Value ?? null
+      );
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // * oauth flow
+  async exchangeCodeForToken(
+    code: string,
+  ): Promise<CognitoOAuth2TokenResponse> {
+    const data: CognitoOAuth2TokenRequest = {
+      grant_type: 'authorization_code',
+      client_id: this.clientId,
+      code: code,
+      redirect_uri: this.redirectUri,
+    };
+
+    const authBase64 = Buffer.from(
+      `${this.clientId}:${this.clientSecret}`,
+    ).toString('base64');
+
+    const req = axios.post<CognitoOAuth2TokenResponse>(
+      `${this.cognitoDomainName}/oauth2/token`,
+      qs.stringify(data),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${authBase64}`,
+        },
+      },
+    );
+
+    try {
+      const response = await req;
+      return response.data;
+    } catch (error) {
+      throw new Error(
+        `Error exchanging authorization code for tokens: ${error}`,
+      );
+    }
   }
 }
